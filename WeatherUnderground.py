@@ -24,6 +24,7 @@ from PyTango import AttrQuality, DispLevel, DevState
 from PyTango import AttrWriteType, PipeWriteType
 # Additional import
 # PROTECTED REGION ID(WeatherUnderground.additionnal_import) ENABLED START #
+import tango
 import six
 import time
 import urllib3
@@ -43,11 +44,16 @@ class WeatherUnderground(Device, metaclass=DeviceMeta):
     def read_temperature(self,_town):
         """read and return the temperature as float of the supplied town key,
          use the wunderground api key provided by init_device() """
-        wu_url = 'http://api.wunderground.com/api/%s/geolookup/conditions/q/%s.json' % (self.wu_api_key,_town)
-        self.debug_stream(wu_url)
-        f = self.http.request('POST', wu_url)
-        parsed_json = json.loads(f.data.decode('utf-8'))
-        _t_read = float(parsed_json['current_observation']['temp_c'])
+        _t_read = 0.0
+        try:
+            wu_url = 'http://api.wunderground.com/api/%s/geolookup/conditions/q/%s.json' % (self.wu_api_key,_town)
+            self.debug_stream(wu_url)
+            f = self.http.request('POST', wu_url)
+            parsed_json = json.loads(f.data.decode('utf-8'))
+            _t_read = float(parsed_json['current_observation']['temp_c'])
+        except:
+            tango.Except.throw_exception("Read temperature failed",
+                                         "Could not read temperature for "+_town, "read_temperature()")
         return _t_read
     # PROTECTED REGION END #    //  WeatherUnderground.class_variable
 
@@ -108,12 +114,16 @@ class WeatherUnderground(Device, metaclass=DeviceMeta):
     def init_device(self):
         Device.init_device(self)
         # PROTECTED REGION ID(WeatherUnderground.init_device) ENABLED START #
-        self.
+        self.set_state(tango.DevState.ON)
         self.debug_stream("api_key_file: %s" % self.api_key_file)
-        key_file = open(self.api_key_file)
-        _wu_api_key = key_file.readline()
-        self.wu_api_key = _wu_api_key.strip()
-        self.debug_stream("api_key: %s" % self.wu_api_key)
+        try:
+            key_file = open(self.api_key_file)
+            _wu_api_key = key_file.readline()
+            self.wu_api_key = _wu_api_key.strip()
+            self.debug_stream("api_key: %s" % self.wu_api_key)
+        except:
+            self.error_stream("failed to read wu_api_key")
+            self.set_state(tango.DevState.FAULT)
         self._Grenoble_t = 0.0
         self._Grenoble_t_last_read = 0
         self._Paris_t = 0.0
@@ -137,7 +147,9 @@ class WeatherUnderground(Device, metaclass=DeviceMeta):
 
     def always_executed_hook(self):
         # PROTECTED REGION ID(WeatherUnderground.always_executed_hook) ENABLED START #
-        pass
+        if self.get_state() == tango.DevState.FAULT:
+            tango.Except.throw_exception("WU API key invalid",
+                                         "Please specifiy a file with a valid WU API key", "always_executed_hook()")
         # PROTECTED REGION END #    //  WeatherUnderground.always_executed_hook
 
     def delete_device(self):
